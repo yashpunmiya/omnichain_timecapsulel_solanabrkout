@@ -1,0 +1,94 @@
+
+Omnichain Time Capsule DApp — LayerZero Solana Breakout Bounty
+
+=============================================================
+
+📌 Project Title:
+"Omnichain Time Capsule using LayerZero V2 (Solana + EVM)"
+
+=============================================================
+
+📖 Overview:
+This project implements an omnichain decentralized application (DApp) where users can lock NFTs, tokens, or text messages inside a 'Time Capsule' on Solana, which can be unlocked at a future date. Upon unlocking, a LayerZero V2 message is sent to a destination chain (any EVM-supported chain) to mint a 'Released' NFT or perform a corresponding action.
+
+This solution must use LayerZero V2 contracts and messaging for Solana and integrate with other LayerZero-supported networks.
+
+=============================================================
+
+📌 Required Documentation & Resources (Reference Links):
+
+1. 📖 LayerZero V2 Documentation:
+https://docs.layerzero.network/v2
+
+2. 📦 LayerZero V2 Solana Example Repository (OFT Example):
+https://github.com/LayerZero-Labs/devtools/tree/main/examples/oft-solana
+
+3. 🌐 Deployed Contracts (Supported Chains & Endpoints):
+https://docs.layerzero.network/v2/deployments/deployed-contracts
+
+4. 📡 LayerZeroScan Explorer (for cross-chain message tracking):
+https://layerzeroscan.com/
+
+5. 📝 Hackathon Judging Criteria & Details:
+https://docs.layerzero.network/v2
+
+=============================================================
+
+📌 Smart Contract Requirements:
+
+**Solana Program:**
+- Lock NFTs, OFTs (Omnichain Fungible Tokens), or text messages into a Time Capsule.
+- Store a `releaseTimestamp` alongside the asset/message.
+- At/after the `releaseTimestamp`, enable an `unlockTimeCapsule()` function.
+- On unlocking:
+  - Send a LayerZero V2 message to a destination chain (using LayerZero endpoints).
+  - Include unlock details in the message (sender address, content type, unlock time).
+
+**EVM Contract (Destination Chain):**
+- Listen for incoming messages via LayerZero V2 messaging.
+- On message receipt:
+  - Mint a "Time Capsule Released" NFT (ERC721) or trigger a release event.
+  - Optionally display the original locked message (if text-based capsule).
+
+=============================================================
+
+📌 Frontend Requirements (Optional but Recommended):
+- React-based frontend UI
+- Connect Solana wallet and EVM wallet
+- Lock Time Capsule with date input
+- Show active capsules and unlock status
+- Button to manually trigger unlock (for demo)
+- Display LayerZeroScan message proofs for transactions
+
+=============================================================
+
+📌 LayerZero Endpoint Configuration:
+
+Obtain the LayerZero V2 endpoint addresses for your target chains here:
+https://docs.layerzero.network/v2/deployments/deployed-contracts
+
+Use these endpoint addresses for setting up messaging between Solana and EVM.
+
+=============================================================
+
+📌 Cursor Prompt:
+
+"Create a complete omnichain DApp consisting of smart contracts for Solana and EVM chains using LayerZero V2 messaging to implement an 'Omnichain Time Capsule' system.
+
+- Follow LayerZero V2 documentation and OFT Solana example as reference.
+- Use appropriate deployed LayerZero endpoints from provided documentation.
+- Ensure cross-chain message passing from Solana to EVM upon unlock.
+- Clean, well-commented code with deployment and frontend demo capability.
+- Include events and message logs for LayerZeroScan verification.
+
+This submission aligns with the LayerZero Solana Breakout Bounty judging criteria."
+
+=============================================================
+
+📌 Optional — Submit Feedback for $100 Reward:
+Provide feedback on LayerZero tools and documentation through this form:
+https://layerzeronetwork.typeform.com/builderFeedback
+
+=============================================================
+
+Good luck — this can win the omnichain innovation bounty!

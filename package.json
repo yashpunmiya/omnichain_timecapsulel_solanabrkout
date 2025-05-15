@@ -1,0 +1,49 @@
+{
+  "name": "omnichain-time-capsule",
+  "version": "0.1.0",
+  "description": "Omnichain Time Capsule DApp using LayerZero V2 for Solana and EVM",
+  "main": "index.js",
+  "scripts": {
+    "solana:build": "cd src/solana/program && cargo build-bpf",
+    "solana:deploy": "cd src/solana/program && solana program deploy dist/program.so",
+    "evm:compile": "cd src/evm && npx hardhat compile",
+    "evm:deploy": "cd src/evm && npx hardhat run scripts/deploy.js --network sepolia",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "solana",
+    "ethereum",
+    "layerzero",
+    "omnichain",
+    "time-capsule"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@layerzerolabs/lz-evm-sdk-v2": "^2.3.44",
+    "@openzeppelin/contracts": "^4.9.0",
+    "@project-serum/anchor": "^0.26.0",
+    "@solana/spl-token": "^0.3.8",
+    "@solana/web3.js": "^1.87.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "@nomicfoundation/hardhat-verify": "^1.0.0",
+    "@typechain/ethers-v6": "^0.4.0",
+    "@typechain/hardhat": "^8.0.0",
+    "@types/chai": "^4.2.0",
+    "@types/mocha": "^10.0.10",
+    "chai": "^4.3.7",
+    "hardhat": "^2.24.0",
+    "hardhat-gas-reporter": "^1.0.8",
+    "mocha": "^10.2.0",
+    "solidity-coverage": "^0.8.1",
+    "ts-mocha": "^10.0.0",
+    "typechain": "^8.2.0",
+    "typescript": "^5.1.6"
+  }
+}
