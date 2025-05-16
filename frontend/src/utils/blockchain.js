@@ -460,9 +460,10 @@ export const createTimeCapsule = async (wallet, message, unlockDate, destination
       console.log('Manager account confirmed and available');
     }
 
-    // Get the simple PDA format address - this is what our program expects
-    const capsuleAddress = simpleAddress;
-    console.log('Creating capsule at address:', capsuleAddress.toBase58());
+    // Always use indexed capsule addresses to allow multiple capsules per user
+    const capsuleCount = managerAccount.capsuleCount.toNumber();
+    const capsuleAddress = await getTimeCapsuleAddress(wallet.publicKey, capsuleCount);
+    console.log('Creating capsule at address (using indexed PDA):', capsuleAddress.toBase58());
 
     // Get proper chain ID and destination address
     const destinationChainId = CHAIN_IDS[destinationChain];
@@ -486,14 +487,6 @@ export const createTimeCapsule = async (wallet, message, unlockDate, destination
     console.log('Creating capsule with release timestamp:', releaseTimestamp);
     console.log('Creating capsule with message:', message);
     
-    // First check if the account already exists
-    const connection = program.provider.connection;
-    const existingAccount = await connection.getAccountInfo(capsuleAddress);
-    
-    if (existingAccount) {
-      throw new Error('You already have a time capsule. You need to unlock your existing capsule before creating a new one.');
-    }
-    
     // Try with manual transaction building which is more reliable
     const tx = await program.methods
       .createTextCapsule(
@@ -511,6 +504,7 @@ export const createTimeCapsule = async (wallet, message, unlockDate, destination
       .transaction();
       
     // Sign and send with manual handling
+    const connection = program.provider.connection;
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
     tx.recentBlockhash = blockhash;
     tx.feePayer = wallet.publicKey;
@@ -557,6 +551,85 @@ export const createTimeCapsule = async (wallet, message, unlockDate, destination
     };
   } catch (error) {
     console.error('Error creating time capsule:', error);
+    throw error;
+  }
+};
+
+// Function to create a time capsule with a specific indexed address
+const createIndexedTimeCapsule = async (wallet, message, unlockDate, destinationChain, capsuleAddress, managerAddress) => {
+  try {
+    const program = getProgram(wallet);
+    const connection = program.provider.connection;
+    
+    // Get proper chain ID and destination address
+    const destinationChainId = CHAIN_IDS[destinationChain];
+    if (!destinationChainId) {
+      throw new Error(`Invalid destination chain: ${destinationChain}`);
+    }
+    
+    const destinationContractAddress = DESTINATION_ADDRESSES[destinationChain];
+    if (!destinationContractAddress) {
+      throw new Error(`Destination contract address not found for ${destinationChain}`);
+    }
+    
+    // Convert destination address to bytes
+    const destinationAddress = hexToBytes(destinationContractAddress);
+    
+    // Create the capsule - ensure timestamp is an integer
+    const releaseTimestamp = Math.floor(new Date(unlockDate).getTime() / 1000);
+    
+    // Try with manual transaction building which is more reliable
+    const tx = await program.methods
+      .createTextCapsule(
+        message,
+        new anchor.BN(releaseTimestamp),
+        destinationChainId,
+        Array.from(destinationAddress)
+      )
+      .accounts({
+        timeCapsuleManager: managerAddress,
+        timeCapsule: capsuleAddress,
+        payer: wallet.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .transaction();
+      
+    // Sign and send with manual handling
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    tx.recentBlockhash = blockhash;
+    tx.feePayer = wallet.publicKey;
+    
+    // Sign the transaction
+    const signedTx = await wallet.signTransaction(tx);
+    
+    // Send with retry
+    const txId = await connection.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: true,
+      maxRetries: 5,
+      preflightCommitment: 'confirmed'
+    });
+    
+    // Wait for confirmation using a more robust method
+    await connection.confirmTransaction({
+      signature: txId,
+      blockhash: blockhash,
+      lastValidBlockHeight: lastValidBlockHeight
+    }, 'confirmed');
+    
+    console.log('Indexed capsule created successfully:', txId);
+    console.log('Capsule address:', capsuleAddress.toBase58());
+    
+    return {
+      transactionId: txId,
+      capsuleAddress: capsuleAddress.toBase58(),
+      releaseTimestamp,
+      message,
+      destinationChain,
+      destinationChainId,
+      destinationAddress: destinationContractAddress
+    };
+  } catch (error) {
+    console.error('Error creating indexed time capsule:', error);
     throw error;
   }
 };
@@ -619,7 +692,7 @@ export const fetchUserCapsules = async (wallet) => {
       console.log('Error checking simple PDA format:', simplePdaErr.message);
     }
     
-    // Now try the legacy format with counts
+    // Try the legacy format with counts
     try {
       const managerAccount = await program.account.timeCapsuleManager.fetch(managerAddress);
       console.log('Manager account fetched:', managerAccount);
@@ -629,15 +702,16 @@ export const fetchUserCapsules = async (wallet) => {
         console.log('No capsules found in manager');
       } else {
         // Try to get all capsules based on the count from manager (legacy format)
-      const capsuleCount = managerAccount.capsuleCount.toNumber();
-      console.log('Total capsule count:', capsuleCount);
+        // Add a larger buffer to the count to make sure we check for any indexed capsules too
+        const capsuleCount = managerAccount.capsuleCount.toNumber() + 10; 
+        console.log('Total capsule count + buffer:', capsuleCount);
       
         // Loop through all possible capsule indexes using the original PDA format
-      for (let i = 0; i < capsuleCount; i++) {
-        try {
-          const capsuleAddress = await getTimeCapsuleAddress(wallet.publicKey, i);
-          console.log(`Trying to fetch capsule at index ${i}:`, capsuleAddress.toBase58());
-          
+        for (let i = 0; i < capsuleCount; i++) {
+          try {
+            const capsuleAddress = await getTimeCapsuleAddress(wallet.publicKey, i);
+            console.log(`Trying to fetch capsule at index ${i}:`, capsuleAddress.toBase58());
+            
             // Check if account exists and try to fetch it
             const accountInfo = await connection.getAccountInfo(capsuleAddress);
             if (!accountInfo) {
@@ -661,13 +735,13 @@ export const fetchUserCapsules = async (wallet) => {
                 const exists = capsules.some(c => c.id === capsuleAddress.toBase58());
                 
                 if (!exists) {
-                capsules.push({
-                  id: capsuleAddress.toBase58(),
-                  message: capsuleAccount.content,
-                  unlockDate: new Date(capsuleAccount.releaseTimestamp.toNumber() * 1000).toISOString(),
-                  destinationChain: capsuleAccount.destinationChainId === CHAIN_IDS.sepolia ? 'sepolia' : 'arbitrum-sepolia',
-                  isUnlocked: capsuleAccount.isUnlocked
-                });
+                  capsules.push({
+                    id: capsuleAddress.toBase58(),
+                    message: capsuleAccount.content,
+                    unlockDate: new Date(capsuleAccount.releaseTimestamp.toNumber() * 1000).toISOString(),
+                    destinationChain: capsuleAccount.destinationChainId === CHAIN_IDS.sepolia ? 'sepolia' : 'arbitrum-sepolia',
+                    isUnlocked: capsuleAccount.isUnlocked
+                  });
                 } else {
                   console.log(`Capsule at index ${i} already in list, skipping`);
                 }
@@ -678,9 +752,9 @@ export const fetchUserCapsules = async (wallet) => {
               console.log(`Failed to decode account at index ${i}:`, decodeErr.message);
               
               // Try manual decoding...
-          }
-        } catch (err) {
-          console.log(`Error processing capsule at index ${i}:`, err.message);
+            }
+          } catch (err) {
+            console.log(`Error processing capsule at index ${i}:`, err.message);
           }
         }
       }
@@ -713,7 +787,6 @@ export const unlockCapsule = async (wallet, capsuleId) => {
 
     console.log('Unlocking capsule address:', capsuleAddress.toBase58());
 
-    try {
     // First fetch the capsule account to check its type
     const capsuleAccount = await program.account.timeCapsule.fetch(capsuleAddress);
     console.log('Capsule account:', capsuleAccount);
@@ -722,35 +795,31 @@ export const unlockCapsule = async (wallet, capsuleId) => {
     const currentTime = Math.floor(Date.now() / 1000);
     const releaseTimestamp = capsuleAccount.releaseTimestamp.toNumber();
     
-    if (currentTime < releaseTimestamp) {
-      throw new Error('This capsule is not ready to be unlocked yet. Release time: ' + 
-        new Date(releaseTimestamp * 1000).toLocaleString());
-    }
     
     if (capsuleAccount.isUnlocked) {
       throw new Error('This capsule has already been unlocked.');
     }
 
-      // Check that the wallet is the owner
-      if (!capsuleAccount.owner.equals(wallet.publicKey)) {
-        throw new Error('Only the capsule owner can unlock it.');
+    // Check that the wallet is the owner
+    if (!capsuleAccount.owner.equals(wallet.publicKey)) {
+      throw new Error('Only the capsule owner can unlock it.');
+    }
+    
+    // Get destination chain info for logs
+    let destinationChain = "unknown";
+    Object.entries(CHAIN_IDS).forEach(([chain, id]) => {
+      if (id === capsuleAccount.destinationChainId) {
+        destinationChain = chain;
       }
-      
-      // Get destination chain info for logs
-      let destinationChain = "unknown";
-      Object.entries(CHAIN_IDS).forEach(([chain, id]) => {
-        if (id === capsuleAccount.destinationChainId) {
-          destinationChain = chain;
-        }
-      });
-      
-      console.log('Unlocking capsule with destination:', {
-        chainId: capsuleAccount.destinationChainId,
-        chainName: destinationChain,
-        destinationAddress: Buffer.from(capsuleAccount.destinationAddress).toString('hex')
-      });
+    });
+    
+    console.log('Unlocking capsule with destination:', {
+      chainId: capsuleAccount.destinationChainId,
+      chainName: destinationChain,
+      destinationAddress: Buffer.from(capsuleAccount.destinationAddress).toString('hex')
+    });
 
-      // Check capsule type
+    // Check capsule type
     const isCapsuleText = capsuleAccount.capsuleType.text !== undefined;
     const isCapsuleToken = capsuleAccount.capsuleType.token !== undefined;
     const isCapsuleNFT = capsuleAccount.capsuleType.nft !== undefined;
@@ -763,40 +832,38 @@ export const unlockCapsule = async (wallet, capsuleId) => {
 
     // Base accounts needed for all capsule types
     const accounts = {
-        timeCapsule: capsuleAddress, // Use the actual capsule address from the parameter
+      timeCapsule: capsuleAddress,
       payer: wallet.publicKey,
       systemProgram: SystemProgram.programId,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY, // Add rent sysvar
-      };
+      rent: anchor.web3.SYSVAR_RENT_PUBKEY
+    };
 
-      // Add the LayerZero endpoint
-      if (LAYERZERO_ENDPOINT) {
-        accounts.layerzeroEndpoint = LAYERZERO_ENDPOINT;
-        console.log('LayerZero endpoint:', LAYERZERO_ENDPOINT.toBase58());
-      } else {
-        console.warn('LayerZero endpoint not set! Cross-chain message will not be sent.');
-      }
+    // Add the LayerZero endpoint
+    if (LAYERZERO_ENDPOINT) {
+      accounts.layerzeroEndpoint = LAYERZERO_ENDPOINT;
+      console.log('LayerZero endpoint:', LAYERZERO_ENDPOINT.toBase58());
+    } else {
+      console.warn('LayerZero endpoint not set! Cross-chain message will not be sent.');
+    }
 
-      // Get capsule token account PDA based on the actual capsule address
-      const [capsuleTokenAccount] = await PublicKey.findProgramAddress(
-        [Buffer.from('token_account'), capsuleAddress.toBuffer()],
-        programId
-      );
-      
-      // Always provide capsule token account regardless of type
-      accounts.capsuleTokenAccount = capsuleTokenAccount;
-      console.log('Token account PDA:', capsuleTokenAccount.toBase58());
-      
-      // For token capsules, get destination token account, otherwise use a placeholder
-      if (isCapsuleToken && capsuleAccount.tokenMint) {
-        const tokenMint = capsuleAccount.tokenMint;
-
+    // Get capsule token account PDA based on the actual capsule address
+    const [capsuleTokenAccount] = await PublicKey.findProgramAddress(
+      [Buffer.from('token_account'), capsuleAddress.toBuffer()],
+      programId
+    );
+    
+    // Always provide capsule token account regardless of type
+    accounts.capsuleTokenAccount = capsuleTokenAccount;
+    console.log('Token account PDA:', capsuleTokenAccount.toBase58());
+    
+    // For token capsules, get destination token account, otherwise use a placeholder
+    if (isCapsuleToken && capsuleAccount.tokenMint) {
+      const tokenMint = capsuleAccount.tokenMint;
       // Get the owner's destination token account
       const destinationTokenAccount = await getAssociatedTokenAddress(
         tokenMint,
         wallet.publicKey
       );
-
       accounts.destinationTokenAccount = destinationTokenAccount;
       accounts.tokenProgram = TOKEN_PROGRAM_ID;
       
@@ -804,93 +871,35 @@ export const unlockCapsule = async (wallet, capsuleId) => {
         tokenMint: tokenMint.toBase58(),
         destinationTokenAccount: destinationTokenAccount.toBase58()
       });
-      } else {
-        // For text capsules, use the wallet public key as a placeholder
-        accounts.destinationTokenAccount = wallet.publicKey;
-        accounts.tokenProgram = TOKEN_PROGRAM_ID;
-        console.log('Using placeholder destination token account for text capsule');
+    } else {
+      // For text capsules, use the wallet public key as a placeholder
+      accounts.destinationTokenAccount = wallet.publicKey;
+      accounts.tokenProgram = TOKEN_PROGRAM_ID;
+      console.log('Using placeholder destination token account for text capsule');
     }
 
     console.log('Unlock accounts:', accounts);
 
-      try {
-        // Try a direct RPC call first
-        console.log('Trying direct RPC call...');
+    // Use the program.rpc method which ensures the wallet prompt appears
+    console.log('Trying direct RPC call...');
     const txId = await program.methods
       .unlockCapsule()
       .accounts(accounts)
-          .rpc({
-            skipPreflight: true,
-            commitment: 'confirmed'
-          });
+      .rpc();
     
     console.log('Unlock transaction confirmed:', txId);
-        console.log(`LayerZero cross-chain message sent to ${destinationChain}. Check LayerZero Explorer: https://layerzeroscan.com/`);
-        console.log(`Also check your transaction on Solana Explorer: https://explorer.solana.com/tx/${txId}?cluster=devnet`);
-        
-        return {
-          transactionId: txId,
-          capsuleId: capsuleAddress.toBase58(),
-          destinationChain,
-          destinationChainId: capsuleAccount.destinationChainId,
-          isLayerZeroMessageSent: !!LAYERZERO_ENDPOINT
-        };
-      } catch (firstTryError) {
-        console.log('First unlock attempt failed:', firstTryError.message);
-        console.log('Trying with manual transaction building...');
-        
-        // Create the transaction 
-        const tx = await program.methods
-          .unlockCapsule()
-          .accounts(accounts)
-          .transaction();
-          
-        // Sign and send with manual retry
-        const connection = program.provider.connection;
-        const { blockhash } = await connection.getLatestBlockhash('confirmed');
-        tx.recentBlockhash = blockhash;
-        tx.feePayer = wallet.publicKey;
-        
-        try {
-          // Sign the transaction
-          const signedTx = await wallet.signTransaction(tx);
-          
-          // Send with retry
-          const txId = await connection.sendRawTransaction(signedTx.serialize(), {
-            skipPreflight: true,
-            maxRetries: 5,
-            preflightCommitment: 'confirmed'
-          });
-          
-          // Wait for confirmation
-          await connection.confirmTransaction({
-            signature: txId,
-            blockhash: blockhash,
-            lastValidBlockHeight: (await connection.getBlockHeight()) + 20
-          }, 'confirmed');
-          
-          console.log('Unlock transaction confirmed (manual):', txId);
-          console.log(`LayerZero cross-chain message sent to ${destinationChain}. Check LayerZero Explorer: https://layerzeroscan.com/`);
-          console.log(`Also check your transaction on Solana Explorer: https://explorer.solana.com/tx/${txId}?cluster=devnet`);
-          
-          return {
-            transactionId: txId,
-            capsuleId: capsuleAddress.toBase58(),
-            destinationChain,
-            destinationChainId: capsuleAccount.destinationChainId,
-            isLayerZeroMessageSent: !!LAYERZERO_ENDPOINT
-          };
-        } catch (signError) {
-          console.error('Error in manual transaction approach:', signError);
-          throw signError;
-        }
-      }
+    console.log(`LayerZero cross-chain message sent to ${destinationChain}. Check LayerZero Explorer: https://layerzeroscan.com/`);
+    console.log(`Also check your transaction on Solana Explorer: https://explorer.solana.com/tx/${txId}?cluster=devnet`);
+    
+    return {
+      transactionId: txId,
+      capsuleId: capsuleAddress.toBase58(),
+      destinationChain,
+      destinationChainId: capsuleAccount.destinationChainId,
+      isLayerZeroMessageSent: !!LAYERZERO_ENDPOINT
+    };
   } catch (error) {
     console.error('Error unlocking capsule:', error);
-      throw error;
-    }
-  } catch (error) {
-    console.error('Error in unlockCapsule:', error);
     throw error;
   }
 };
@@ -958,7 +967,69 @@ export const createTokenCapsule = async (wallet, mint, amount, unlockDate, desti
     const existingAccount = await connection.getAccountInfo(capsuleAddress);
     
     if (existingAccount) {
-      throw new Error('You already have a time capsule. You need to unlock your existing capsule before creating a new one.');
+      console.log('Found existing capsule, creating a new one with index instead');
+      // Get the capsule count and create a new one with an index
+      const capsuleCount = managerAccount.capsuleCount.toNumber();
+      const newCapsuleAddress = await getTimeCapsuleAddress(wallet.publicKey, capsuleCount);
+      console.log('Creating indexed token capsule at address:', newCapsuleAddress.toBase58());
+      
+      // Now get the token account PDA for this new capsule address
+      const [newCapsuleTokenAccount] = await PublicKey.findProgramAddress(
+        [Buffer.from('token_account'), newCapsuleAddress.toBuffer()],
+        programId
+      );
+      
+      // Create token capsule with the new address
+      const tx = await program.methods
+        .createTokenCapsule(
+          new anchor.BN(amount),
+          new anchor.BN(releaseTimestamp),
+          destinationChainId,
+          Array.from(destinationAddress)
+        )
+        .accounts({
+          timeCapsuleManager: managerAddress,
+          timeCapsule: newCapsuleAddress,
+          payer: wallet.publicKey,
+          mint: mintPublicKey,
+          sourceTokenAccount: sourceTokenAccount,
+          capsuleTokenAccount: newCapsuleTokenAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        })
+        .transaction();
+        
+      // Sign and send with manual handling
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = wallet.publicKey;
+      
+      // Sign the transaction
+      const signedTx = await wallet.signTransaction(tx);
+      
+      // Send with retry
+      const txId = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 5,
+        preflightCommitment: 'confirmed'
+      });
+      
+      // Wait for confirmation
+      await connection.confirmTransaction({
+        signature: txId,
+        blockhash: blockhash,
+        lastValidBlockHeight: lastValidBlockHeight
+      }, 'confirmed');
+      
+      console.log('Indexed token capsule created successfully:', txId);
+      console.log('Capsule address:', newCapsuleAddress.toBase58());
+      
+      return {
+        transactionId: txId,
+        capsuleAddress: newCapsuleAddress.toBase58(),
+        destinationChain,
+      };
     }
 
     // Get the token account PDA for the capsule

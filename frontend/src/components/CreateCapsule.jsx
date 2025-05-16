@@ -1,81 +1,67 @@
 import React, { useState } from 'react';
-import { Paper, Typography, TextField, Button, Box, MenuItem, Select, FormControl, InputLabel, Alert, Snackbar, Tabs, Tab } from '@mui/material';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { createTimeCapsule, createTokenCapsule } from '../utils/blockchain';
+import { motion } from 'framer-motion';
+import {
+  Box,
+  Typography,
+  TextField,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Paper,
+  Alert,
+  Snackbar
+} from '@mui/material';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { LocalizationProvider, DateTimePicker } from '@mui/x-date-pickers';
+import LockClockIcon from '@mui/icons-material/LockClock';
+import SendIcon from '@mui/icons-material/Send';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { createTimeCapsule } from '../utils/blockchain';
 
-const CreateCapsule = ({ onCapsuleCreated }) => {
-  const { connection } = useConnection();
+const SUPPORTED_CHAINS = [
+  { id: 'solana', name: 'Solana', icon: '🌟' },
+  { id: 'sepolia', name: 'Ethereum Sepolia', icon: '⟠' },
+  { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', icon: '⬡' }
+];
+
+const CreateCapsule = () => {
   const wallet = useWallet();
+  const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
-  const [unlockDate, setUnlockDate] = useState('');
+  const [unlockDate, setUnlockDate] = useState(null);
   const [destinationChain, setDestinationChain] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
-  const [capsuleType, setCapsuleType] = useState(0); // 0 for text, 1 for token
-  const [tokenMint, setTokenMint] = useState('');
-  const [tokenAmount, setTokenAmount] = useState('');
 
-  const handleTabChange = (event, newValue) => {
-    setCapsuleType(newValue);
-  };
+  const handleOpen = () => setOpen(true);
+  const handleClose = () => setOpen(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleCreate = async () => {
     if (!wallet.publicKey) {
       setNotification({
         open: true,
         message: 'Please connect your wallet first',
-        severity: 'error'
+        severity: 'warning'
       });
       return;
     }
-
-    // Validate common fields
-    if (!unlockDate || !destinationChain) {
-      setNotification({
-        open: true,
-        message: 'Please fill in all required fields',
-        severity: 'error'
-      });
-      return;
-    }
-
-    // Validate type-specific fields
-    if (capsuleType === 0 && !message) {
-      setNotification({
-        open: true,
-        message: 'Please enter a message for your time capsule',
-        severity: 'error'
-      });
-      return;
-    }
-
-    if (capsuleType === 1 && (!tokenMint || !tokenAmount || isNaN(parseFloat(tokenAmount)) || parseFloat(tokenAmount) <= 0)) {
-      setNotification({
-        open: true,
-        message: 'Please enter a valid token mint address and amount',
-        severity: 'error'
-      });
-      return;
-    }
-
-    setLoading(true);
+    
+    setIsCreating(true);
+    
     try {
-      let signature;
-      
-      if (capsuleType === 0) {
-        // Create text capsule
-        signature = await createTimeCapsule(wallet, message, unlockDate, destinationChain);
-      } else {
-        // Create token capsule
-        signature = await createTokenCapsule(
-          wallet, 
-          tokenMint, 
-          parseFloat(tokenAmount), 
-          unlockDate, 
-          destinationChain
-        );
+      // Calculate unlock date in seconds
+      if (!unlockDate) {
+        throw new Error('Please select an unlock date');
       }
+      
+      // Call the blockchain function to create a text capsule
+      await createTimeCapsule(wallet, message, unlockDate, destinationChain);
       
       setNotification({
         open: true,
@@ -85,28 +71,19 @@ const CreateCapsule = ({ onCapsuleCreated }) => {
       
       // Reset form
       setMessage('');
-      setUnlockDate('');
+      setUnlockDate(null);
       setDestinationChain('');
-      setTokenMint('');
-      setTokenAmount('');
-      
-      // Call the refresh function if provided
-      if (onCapsuleCreated) {
-        console.log('Refreshing capsules after creation...');
-        // Add a slight delay to ensure blockchain state is updated
-        setTimeout(() => {
-          onCapsuleCreated();
-        }, 2000);
-      }
+      handleClose();
     } catch (error) {
       console.error('Error creating capsule:', error);
+      
       setNotification({
         open: true,
         message: `Error creating capsule: ${error.message}`,
         severity: 'error'
       });
     } finally {
-      setLoading(false);
+      setIsCreating(false);
     }
   };
 
@@ -115,84 +92,211 @@ const CreateCapsule = ({ onCapsuleCreated }) => {
   };
 
   return (
-    <Paper sx={{ p: 4 }}>
-      <Typography variant="h5" gutterBottom>Create New Time Capsule</Typography>
-      
-      <Tabs value={capsuleType} onChange={handleTabChange} sx={{ mb: 3 }}>
-        <Tab label="Text Capsule" />
-        <Tab label="Token Capsule" />
-      </Tabs>
-      
-      <Box component="form" onSubmit={handleSubmit} sx={{ mt: 3 }}>
-        {capsuleType === 0 ? (
-          <TextField
-            fullWidth
-            label="Message"
-            multiline
-            rows={4}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            sx={{ mb: 3 }}
-            disabled={loading}
-          />
-        ) : (
-          <>
-            <TextField
-              fullWidth
-              label="Token Mint Address"
-              value={tokenMint}
-              onChange={(e) => setTokenMint(e.target.value)}
-              sx={{ mb: 3 }}
-              disabled={loading}
-              placeholder="Enter Solana SPL token mint address"
-              helperText="The mint address of the SPL token you want to lock"
-            />
-            <TextField
-              fullWidth
-              label="Token Amount"
-              type="number"
-              value={tokenAmount}
-              onChange={(e) => setTokenAmount(e.target.value)}
-              sx={{ mb: 3 }}
-              disabled={loading}
-              inputProps={{ min: 0, step: "any" }}
-              placeholder="Amount of tokens to lock"
-            />
-          </>
-        )}
-        
-        <TextField
-          fullWidth
-          type="datetime-local"
-          label="Unlock Date"
-          value={unlockDate}
-          onChange={(e) => setUnlockDate(e.target.value)}
-          sx={{ mb: 3 }}
-          disabled={loading}
-          InputLabelProps={{ shrink: true }}
-        />
-        <FormControl fullWidth sx={{ mb: 3 }}>
-          <InputLabel>Destination Chain</InputLabel>
-          <Select
-            value={destinationChain}
-            onChange={(e) => setDestinationChain(e.target.value)}
-            label="Destination Chain"
-            disabled={loading}
-          >
-            <MenuItem value="sepolia">Ethereum Sepolia</MenuItem>
-            <MenuItem value="arbitrum-sepolia">Arbitrum Sepolia</MenuItem>
-          </Select>
-        </FormControl>
-        <Button
-          fullWidth
-          variant="contained"
-          color="primary"
-          type="submit"
-          disabled={!wallet.publicKey || loading}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+    >
+      <Box sx={{ textAlign: 'center', mb: 6 }}>
+        <Typography
+          variant="h3"
+          sx={{
+            fontFamily: 'Orbitron',
+            color: 'var(--text-primary)',
+            fontWeight: 700,
+            mb: 2
+          }}
         >
-          {loading ? 'Creating...' : (wallet.publicKey ? 'Create Time Capsule' : 'Connect Wallet to Create')}
-        </Button>
+          Create Time Capsule
+        </Typography>
+        <Typography
+          sx={{
+            color: 'var(--text-secondary)',
+            maxWidth: '600px',
+            margin: '0 auto'
+          }}
+        >
+          Lock your message in a secure vault and send it across chains
+        </Typography>
       </Box>
+
+      <motion.div
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <Paper
+          onClick={handleOpen}
+          className="glass-card"
+          sx={{
+            maxWidth: '600px',
+            margin: '0 auto',
+            p: 6,
+            cursor: 'pointer',
+            textAlign: 'center',
+            position: 'relative',
+            overflow: 'hidden'
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(45deg, var(--accent-primary), transparent)',
+              opacity: 0.1
+            }}
+          />
+          <motion.div
+            animate={{
+              scale: [1, 1.1, 1],
+              rotate: [0, 5, -5, 0]
+            }}
+            transition={{
+              duration: 2,
+              repeat: Infinity,
+              repeatType: 'reverse'
+            }}
+          >
+            <LockClockIcon sx={{ fontSize: 100, color: 'var(--accent-primary)', mb: 3 }} />
+          </motion.div>
+          <Typography
+            variant="h4"
+            sx={{
+              color: 'var(--text-primary)',
+              fontFamily: 'Orbitron',
+              fontWeight: 600,
+              mb: 2
+            }}
+          >
+            Create New Capsule
+          </Typography>
+          <Typography sx={{ color: 'var(--text-secondary)' }}>
+            Click to start creating your time capsule
+          </Typography>
+        </Paper>
+      </motion.div>
+
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          className: 'modal-content'
+        }}
+        BackdropProps={{
+          className: 'modal-backdrop'
+        }}
+      >
+        <DialogTitle sx={{ fontFamily: 'Orbitron', color: 'var(--text-primary)' }}>
+          Create Time Capsule
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              label="Your Message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              sx={{
+                mb: 3,
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': {
+                    borderColor: 'var(--accent-primary)',
+                  },
+                  '&:hover fieldset': {
+                    borderColor: 'var(--accent-primary)',
+                  },
+                },
+                '& .MuiInputLabel-root': {
+                  color: 'var(--text-secondary)',
+                },
+              }}
+            />
+
+            <LocalizationProvider dateAdapter={AdapterDateFns}>
+              <DateTimePicker
+                label="Unlock Date & Time"
+                value={unlockDate}
+                onChange={setUnlockDate}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    fullWidth
+                    sx={{
+                      mb: 3,
+                      '& .MuiOutlinedInput-root': {
+                        '& fieldset': {
+                          borderColor: 'var(--accent-primary)',
+                        },
+                      },
+                    }}
+                  />
+                )}
+              />
+            </LocalizationProvider>
+
+            <FormControl fullWidth>
+              <InputLabel sx={{ color: 'var(--text-secondary)' }}>
+                Destination Chain
+              </InputLabel>
+              <Select
+                value={destinationChain}
+                onChange={(e) => setDestinationChain(e.target.value)}
+                sx={{
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'var(--accent-primary)',
+                  },
+                }}
+              >
+                {SUPPORTED_CHAINS.map((chain) => (
+                  <MenuItem key={chain.id} value={chain.id}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>{chain.icon}</span>
+                      <span>{chain.name}</span>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 3 }}>
+          <Button
+            onClick={handleClose}
+            sx={{
+              color: 'var(--text-secondary)',
+              '&:hover': {
+                color: 'var(--text-primary)',
+              },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreate}
+            disabled={!message || !unlockDate || !destinationChain || isCreating}
+            className={!isCreating ? 'pulse-button' : ''}
+            sx={{
+              background: 'var(--accent-primary)',
+              '&:hover': {
+                background: 'var(--accent-primary)',
+                opacity: 0.9,
+              },
+            }}
+            endIcon={<SendIcon />}
+          >
+            {isCreating ? 'Creating...' : 'Create Capsule'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
       <Snackbar
         open={notification.open}
         autoHideDuration={6000}
@@ -203,7 +307,7 @@ const CreateCapsule = ({ onCapsuleCreated }) => {
           {notification.message}
         </Alert>
       </Snackbar>
-    </Paper>
+    </motion.div>
   );
 };
 

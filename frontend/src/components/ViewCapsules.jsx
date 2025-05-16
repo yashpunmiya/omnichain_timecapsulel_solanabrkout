@@ -1,8 +1,29 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Paper, Typography, List, ListItem, Button, Box, CircularProgress, Alert, Snackbar, Chip } from '@mui/material';
+import { 
+  Paper, 
+  Typography, 
+  List, 
+  ListItem, 
+  Button, 
+  Box, 
+  CircularProgress, 
+  Alert, 
+  Snackbar, 
+  Chip,
+  Grid,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
+} from '@mui/material';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { fetchUserCapsules, unlockCapsule } from '../utils/blockchain';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import { motion, AnimatePresence } from 'framer-motion';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import { formatDistanceToNow } from 'date-fns';
 
 // Convert to forwardRef to expose methods to parent
 const ViewCapsules = forwardRef((props, ref) => {
@@ -13,6 +34,8 @@ const ViewCapsules = forwardRef((props, ref) => {
   const [unlocking, setUnlocking] = useState(null);
   const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
   const [rpcError, setRpcError] = useState(false);
+  const [selectedCapsule, setSelectedCapsule] = useState(null);
+  const [unlockingCapsule, setUnlockingCapsule] = useState(false);
 
   const loadCapsules = async () => {
     if (!wallet.publicKey) {
@@ -27,7 +50,14 @@ const ViewCapsules = forwardRef((props, ref) => {
       console.log('Loading capsules with wallet:', wallet.publicKey.toString());
       const userCapsules = await fetchUserCapsules(wallet);
       console.log('Loaded capsules:', userCapsules);
-      setCapsules(userCapsules);
+      
+      // Map the capsules and set the status property based on isUnlocked
+      const mappedCapsules = userCapsules.map(capsule => ({
+        ...capsule,
+        status: capsule.isUnlocked ? 'unlocked' : 'locked'
+      }));
+      
+      setCapsules(mappedCapsules);
     } catch (error) {
       console.error('Error loading capsules:', error);
       
@@ -69,17 +99,21 @@ const ViewCapsules = forwardRef((props, ref) => {
     }
   }, [wallet.publicKey]);
 
-  const handleUnlock = async (capsuleId) => {
+  const handleUnlock = async (capsule) => {
     if (!wallet.publicKey) return;
 
-    setUnlocking(capsuleId);
+    setUnlockingCapsule(true);
     try {
-      await unlockCapsule(wallet, capsuleId);
+      // Call the unlock function
+      const result = await unlockCapsule(wallet, capsule.id);
+      console.log('Unlock result:', result);
+      
       setNotification({
         open: true,
         message: 'Time capsule unlocked successfully!',
         severity: 'success'
       });
+      
       // Reload capsules after unlock
       await loadCapsules();
     } catch (error) {
@@ -99,6 +133,8 @@ const ViewCapsules = forwardRef((props, ref) => {
             errorMessage = 'This capsule is not ready to be unlocked yet.';
           } else if (error.message.includes('CapsuleAlreadyUnlocked')) {
             errorMessage = 'This capsule has already been unlocked.';
+          } else if (error.message.includes('User rejected')) {
+            errorMessage = 'Transaction was cancelled by the user.';
           }
         } else if (error.InstructionError) {
           errorMessage = 'Program execution error: ' + JSON.stringify(error.InstructionError);
@@ -113,12 +149,31 @@ const ViewCapsules = forwardRef((props, ref) => {
         severity: 'error'
       });
     } finally {
-      setUnlocking(null);
+      setUnlockingCapsule(false);
+      setSelectedCapsule(null); // Close the modal after unlock attempt
     }
   };
 
   const handleCloseNotification = () => {
     setNotification({ ...notification, open: false });
+  };
+
+  const getChainIcon = (chain) => {
+    const icons = {
+      solana: '🌟',
+      ethereum: '⟠',
+      polygon: '⬡',
+      avalanche: '🔺',
+      sepolia: '⟠',
+      'arbitrum-sepolia': '⬡'
+    };
+    
+    // Safely handle null/undefined/non-string values
+    if (!chain) return '🔗';
+    
+    // Convert to lowercase for case-insensitive matching
+    const lowerChain = typeof chain === 'string' ? chain.toLowerCase() : String(chain).toLowerCase();
+    return icons[lowerChain] || '🔗';
   };
 
   if (!wallet.publicKey) {
@@ -130,137 +185,223 @@ const ViewCapsules = forwardRef((props, ref) => {
   }
 
   return (
-    <Paper sx={{ p: 4 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5" gutterBottom>Your Time Capsules</Typography>
-        <Button 
-          startIcon={<RefreshIcon />} 
-          onClick={loadCapsules} 
-          disabled={loading}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+    >
+      <Box sx={{ textAlign: 'center', mb: 6 }}>
+        <Typography
+          variant="h3"
+          sx={{
+            fontFamily: 'Orbitron',
+            color: 'var(--text-primary)',
+            fontWeight: 700,
+            mb: 2
+          }}
         >
-          Refresh
-        </Button>
+          Your Time Capsules
+        </Typography>
+        <Typography
+          sx={{
+            color: 'var(--text-secondary)',
+            maxWidth: '600px',
+            margin: '0 auto'
+          }}
+        >
+          Monitor and unlock your time capsules when they're ready
+        </Typography>
       </Box>
-      
-      {rpcError && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          RPC server rate limit exceeded. Some capsules may not be displayed. 
-          Please try again later or try with a different RPC endpoint.
-        </Alert>
-      )}
-      
+
       {loading ? (
         <Box display="flex" justifyContent="center" p={4}>
           <CircularProgress />
         </Box>
       ) : capsules.length === 0 ? (
-        <Typography>No time capsules found</Typography>
+        <Paper className="glass-card" sx={{ p: 4, textAlign: 'center' }}>
+          <Typography variant="h6" sx={{ color: 'var(--text-secondary)' }}>
+            No time capsules found
+          </Typography>
+        </Paper>
       ) : (
-        <List>
-          {capsules.map((capsule) => (
-            <ListItem 
-              key={capsule.id} 
-              divider
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                padding: 2
-              }}
-            >
-              {/* Message and error chip */}
-              <Box display="flex" alignItems="center" gap={1} width="100%" mb={1}>
-                <Typography variant="body1" fontWeight="medium">
-                  {capsule.message.startsWith("Message") ? 
-                    capsule.message : 
-                    capsule.message}
-                </Typography>
-                {capsule.isErrorState && (
-                  <Chip 
-                    size="small" 
-                    color={capsule.isRpcError ? "warning" : "error"}
-                    label={capsule.isRpcError ? "RPC Limit Error" : "Error loading details"} 
-                  />
-                )}
-              </Box>
-              
-              {/* Capsule details */}
-              <Box sx={{ width: '100%', mb: 2 }}>
-                <Typography variant="body2" component="div">
-                  Unlocks at: {
-                    // Check if the date is valid and display a friendly message if not
-                    (() => {
-                      try {
-                        const date = new Date(capsule.unlockDate);
-                        // Check if date is valid and in a reasonable range
-                        if (isNaN(date)) {
-                          return "Unknown (data error)";
-                        }
-                        if (date.getFullYear() > 2100) {
-                          return "Far future (after year 2100)";
-                        }
-                        if (date.getFullYear() < 2000) {
-                          return "Invalid date";
-                        }
-                        // Format the date nicely
-                        return new Intl.DateTimeFormat('default', {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          timeZoneName: 'short'
-                        }).format(date);
-                      } catch (e) {
-                        console.error('Error formatting date:', e);
-                        return "Unknown date";
-                      }
-                    })()
-                  }
-                </Typography>
-                <Typography variant="body2" component="div">
-                  Destination: {capsule.destinationChain}
-                </Typography>
-                <Typography variant="body2" component="div">
-                  Status: {
-                    capsule.isErrorState ? 'Error' :
-                    capsule.isUnlocked ? 'Unlocked' : 'Locked'
-                  }
-                </Typography>
-                <Typography variant="caption" component="div" sx={{ 
-                  wordBreak: 'break-all',
-                  opacity: 0.7
-                }}>
-                  ID: {capsule.id}
-                </Typography>
-              </Box>
-              
-              {/* Action button */}
-              <Button
-                variant="contained"
-                color="primary"
-                disabled={
-                  (() => {
-                    try {
-                      const unlockDate = new Date(capsule.unlockDate);
-                      return new Date() < unlockDate || 
-                             unlocking === capsule.id || 
-                             capsule.isUnlocked ||
-                             capsule.isErrorState ||
-                             isNaN(unlockDate);
-                    } catch (e) {
-                      return true; // Disable button if date is invalid
-                    }
-                  })()
-                }
-                onClick={() => handleUnlock(capsule.id)}
-              >
-                {unlocking === capsule.id ? 'Unlocking...' : 'Unlock'}
-              </Button>
-            </ListItem>
-          ))}
-        </List>
+        <Grid container spacing={3}>
+          <AnimatePresence>
+            {capsules.map((capsule) => (
+              <Grid item xs={12} md={6} lg={4} key={capsule.id}>
+                <motion.div
+                  layout
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Paper
+                    className="capsule-card"
+                    onClick={() => setSelectedCapsule(capsule)}
+                    sx={{
+                      cursor: 'pointer',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        mb: 2
+                      }}
+                    >
+                      <Chip
+                        icon={capsule.status === 'locked' ? <LockIcon /> : <LockOpenIcon />}
+                        label={capsule.status ? capsule.status.toUpperCase() : 'LOCKED'}
+                        sx={{
+                          background: capsule.status === 'locked' ? 'var(--accent-primary)' : 'var(--accent-secondary)',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                      {capsule.destinationChain && (
+                        <Chip
+                          icon={<span>{getChainIcon(capsule.destinationChain.toLowerCase())}</span>}
+                          label={capsule.destinationChain.toUpperCase()}
+                          className="chain-badge"
+                        />
+                      )}
+                    </Box>
+
+                    <Typography
+                      sx={{
+                        color: 'var(--text-primary)',
+                        mb: 2,
+                        fontFamily: 'Orbitron'
+                      }}
+                      className={capsule.status === 'locked' ? 'blur-content' : ''}
+                    >
+                      {capsule.message || "No message available"}
+                    </Typography>
+
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AccessTimeIcon sx={{ color: 'var(--text-secondary)' }} />
+                      <Typography
+                        variant="body2"
+                        className="countdown-timer"
+                      >
+                        {capsule.unlockDate ? (
+                          capsule.status === 'locked' 
+                            ? `Unlocks ${formatDistanceToNow(new Date(capsule.unlockDate), { addSuffix: true })}`
+                            : 'Ready to unlock'
+                        ) : 'Unknown unlock time'}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </motion.div>
+              </Grid>
+            ))}
+          </AnimatePresence>
+        </Grid>
       )}
+
+      <Dialog
+        open={!!selectedCapsule}
+        onClose={() => setSelectedCapsule(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          className: 'modal-content'
+        }}
+        BackdropProps={{
+          className: 'modal-backdrop'
+        }}
+      >
+        {selectedCapsule && (
+          <>
+            <DialogTitle sx={{ fontFamily: 'Orbitron', color: 'var(--text-primary)' }}>
+              Time Capsule Details
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ mt: 2 }}>
+                <Typography sx={{ color: 'var(--text-secondary)', mb: 1 }}>
+                  Status
+                </Typography>
+                <Chip
+                  icon={selectedCapsule.status === 'locked' ? <LockIcon /> : <LockOpenIcon />}
+                  label={(selectedCapsule.status || 'locked').toUpperCase()}
+                  sx={{
+                    background: selectedCapsule.status === 'locked' || !selectedCapsule.status ? 'var(--accent-primary)' : 'var(--accent-secondary)',
+                    color: 'var(--text-primary)',
+                    mb: 3
+                  }}
+                />
+
+                <Typography sx={{ color: 'var(--text-secondary)', mb: 1 }}>
+                  Message
+                </Typography>
+                <Typography
+                  sx={{
+                    color: 'var(--text-primary)',
+                    mb: 3,
+                    p: 2,
+                    background: 'var(--glass-background)',
+                    borderRadius: 1,
+                    fontFamily: 'monospace'
+                  }}
+                  className={selectedCapsule.status === 'locked' ? 'blur-content' : ''}
+                >
+                  {selectedCapsule.message || 'No message available'}
+                </Typography>
+
+                <Typography sx={{ color: 'var(--text-secondary)', mb: 1 }}>
+                  Unlock Time
+                </Typography>
+                <Typography
+                  sx={{
+                    color: 'var(--accent-secondary)',
+                    mb: 3,
+                    fontFamily: 'Orbitron'
+                  }}
+                >
+                  {selectedCapsule.unlockDate 
+                    ? formatDistanceToNow(new Date(selectedCapsule.unlockDate), { addSuffix: true }) 
+                    : 'Unknown unlock time'}
+                </Typography>
+              </Box>
+            </DialogContent>
+            <DialogActions sx={{ p: 3 }}>
+              <Button
+                onClick={() => setSelectedCapsule(null)}
+                sx={{
+                  color: 'var(--text-secondary)',
+                  '&:hover': {
+                    color: 'var(--text-primary)',
+                  },
+                }}
+              >
+                Close
+              </Button>
+              {selectedCapsule.status === 'locked' && new Date() >= selectedCapsule.unlockDate && (
+                <Button
+                  variant="contained"
+                  onClick={() => handleUnlock(selectedCapsule)}
+                  disabled={unlockingCapsule}
+                  className={!unlockingCapsule ? 'pulse-button' : ''}
+                  sx={{
+                    background: 'var(--accent-secondary)',
+                    '&:hover': {
+                      background: 'var(--accent-secondary)',
+                      opacity: 0.9,
+                    },
+                  }}
+                  endIcon={<LockOpenIcon />}
+                >
+                  {unlockingCapsule ? 'Unlocking...' : 'Unlock Capsule'}
+                </Button>
+              )}
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
       
       <Snackbar
         open={notification.open}
@@ -272,7 +413,7 @@ const ViewCapsules = forwardRef((props, ref) => {
           {notification.message}
         </Alert>
       </Snackbar>
-    </Paper>
+    </motion.div>
   );
 });
 
