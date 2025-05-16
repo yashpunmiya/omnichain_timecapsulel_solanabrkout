@@ -8,7 +8,8 @@
     "solana:deploy": "cd src/solana/program && solana program deploy dist/program.so",
     "evm:compile": "cd src/evm && npx hardhat compile",
     "evm:deploy": "cd src/evm && npx hardhat run scripts/deploy.js --network sepolia",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "react-scripts start"
   },
   "keywords": [
     "solana",
@@ -41,6 +42,7 @@
     "hardhat": "^2.24.0",
     "hardhat-gas-reporter": "^1.0.8",
     "mocha": "^10.2.0",
+    "react-scripts": "^5.0.1",
     "solidity-coverage": "^0.8.1",
     "ts-mocha": "^10.0.0",
     "typechain": "^8.2.0",

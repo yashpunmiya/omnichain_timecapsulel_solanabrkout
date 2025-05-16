@@ -6,11 +6,26 @@ const { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } = require('@solana/spl-tok
 const PROGRAM_ID = new PublicKey('Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS'); // Replace with your actual program ID
 const TIME_CAPSULE_MANAGER_SEED = 'manager';
 
+// Convert hex address to base58 PublicKey
+const hexToPublicKey = (hexAddress) => {
+  // Remove '0x' prefix if present and ensure the string is the correct length
+  const cleanHex = hexAddress.replace('0x', '').padStart(64, '0');
+  // Convert hex to Uint8Array
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = parseInt(cleanHex.slice(i * 2, (i + 1) * 2), 16);
+  }
+  return new PublicKey(bytes);
+};
+
 class TimeCapsuleClient {
   constructor(connection, wallet) {
     this.connection = connection;
     this.wallet = wallet;
-    this.program = null;
+    this.program = this.getProgram();
+    
+    // Initialize LayerZero endpoint with proper conversion
+    this.layerzeroEndpoint = hexToPublicKey("0x66A71Dcef29A0fFBDBE3c6a460a3B5BC225Cd675");
   }
 
   async init() {
@@ -144,6 +159,7 @@ class TimeCapsuleClient {
       timeCapsule: timeCapsuleAddress,
       payer: this.wallet.publicKey,
       systemProgram: anchor.web3.SystemProgram.programId,
+      layerzeroEndpoint: this.layerzeroEndpoint
     };
 
     // If this is a token capsule, add the token accounts

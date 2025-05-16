@@ -1,0 +1,9 @@
+{
+  "name": "idl-fetcher",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@solana/web3.js": "^1.87.6",
+    "@project-serum/anchor": "^0.26.0"
+  }
+} 

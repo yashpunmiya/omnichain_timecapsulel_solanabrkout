@@ -7,7 +7,7 @@ async function main() {
   // Get the LayerZero endpoint address for the current network
   const network = hre.network.name;
   
-  // LayerZero V2 endpoint addresses (update with actual addresses)
+  // LayerZero V2 endpoint addresses
   const endpoints = {
     "hardhat": "0x1234567890123456789012345678901234567890", // Replace with a mock address for testing
     "sepolia": "0x6EDCE65403992e310A62460808c4b910D972f10f", // LayerZero V2 Sepolia endpoint
@@ -35,18 +35,18 @@ async function main() {
   await timeCapsuleReceiver.deployed();
   console.log(`TimeCapsuleReceiver deployed to: ${timeCapsuleReceiver.address}`);
   
-  // Allow Solana chain ID (Solana's LayerZero Chain ID is usually 168)
-  const SOLANA_CHAIN_ID = 168;
+  // Allow Solana Devnet chain ID (In LayerZero V2, Solana Devnet is 40228)
+  const SOLANA_DEVNET_CHAIN_ID = 40228;
   
-  console.log(`Setting Solana (${SOLANA_CHAIN_ID}) as an allowed origin...`);
+  console.log(`Setting Solana Devnet (${SOLANA_DEVNET_CHAIN_ID}) as an allowed origin...`);
   
-  const tx = await timeCapsuleReceiver.setAllowedOrigin(SOLANA_CHAIN_ID, true);
+  const tx = await timeCapsuleReceiver.setAllowedOrigin(SOLANA_DEVNET_CHAIN_ID, true);
   await tx.wait();
   
   console.log(`Solana origin allowed successfully!`);
   
-  // Set base URI for metadata (example)
-  const baseURI = "https://time-capsule-metadata.example.com/token/";
+  // Set base URI for metadata - use a valid URL for your metadata
+  const baseURI = "https://time-capsule-metadata.vercel.app/api/token/";
   
   console.log(`Setting base URI to: ${baseURI}`);
   
@@ -60,7 +60,14 @@ async function main() {
   console.log(`Contract: ${timeCapsuleReceiver.address}`);
   console.log(`Network: ${network}`);
   console.log(`LayerZero Endpoint: ${layerZeroEndpoint}`);
+  console.log(`Solana Chain ID allowed: ${SOLANA_DEVNET_CHAIN_ID}`);
   console.log("====================================");
+  
+  // Print instructions for updating env-config.js
+  console.log("");
+  console.log("IMPORTANT: Update your frontend/src/env-config.js file with the following values:");
+  console.log(`DESTINATION_ADDRESSES.${network} = "${timeCapsuleReceiver.address}"`);
+  console.log("");
 }
 
 main()
